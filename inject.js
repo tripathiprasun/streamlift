@@ -34,9 +34,21 @@
   } catch (e) { /* never break the page */ }
 
   const MAX_BODY = 5 * 1024 * 1024;           // largest API response we will read as text
-  const MAX_CAPTURE_BYTES = 2 * 1024 ** 3;    // per captured video
+  const MAX_CAPTURE_BYTES = 8 * 1024 ** 3;    // per captured video (long videos are several GB)
   const MAX_CAPTURES = 6;                     // older captures are dropped (memory)
   const BATCH_BYTES = 4 * 1024 * 1024;        // small chunks are merged into Blobs of about this size
+
+  // Same job as S.fingerprint, but cheap for big chunks: hashing every byte of a multi-GB video in JS froze the page.
+  // Small chunks (init segments) are hashed completely; big ones by their length, head, tail and evenly spread samples.
+  function fingerprint(b) {
+    if (b.length <= 65536) return S.fingerprint(b);
+    let h = 0x811c9dc5;
+    const mix = (from, to) => { for (let i = from; i < to; i++) { h ^= b[i]; h = Math.imul(h, 0x01000193); } };
+    mix(0, 4096); mix(b.length - 4096, b.length);
+    const step = Math.floor(b.length / 64);
+    for (let i = 1; i < 64; i++) mix(i * step, i * step + 64);
+    return (h >>> 0).toString(16) + ':' + b.length;
+  }
 
   const post = (msg) => { try { g.postMessage(Object.assign({ svd: 1 }, msg), '*'); } catch (e) { /* ignore */ } };
   const abs = (u) => { try { return new URL(u, g.location.href).href; } catch (e) { return ''; } };
@@ -213,7 +225,7 @@
     if (!view.length) return;
     if (totalBytes(c) + view.length > MAX_CAPTURE_BYTES) { c.truncated = true; scheduleReport(); return; }
     const copy = view.slice();                      // the page may reuse its buffer
-    const fp = S.fingerprint(copy);
+    const fp = fingerprint(copy);
     if (S.isInitSegment(copy)) {
       // Each distinct init segment starts its own standalone part (a quality switch).
       // Seeing an init we already have just switches back to that part.
@@ -457,11 +469,12 @@
     const dur = durationOf(c);
     const saved = { t: el.currentTime, paused: el.paused, muted: el.muted, rate: el.playbackRate, loop: el.loop };
     const t0 = Date.now();
-    const deadline = t0 + Math.min(15 * 60 * 1000, 45000 + dur * 4000);
+    const deadline = t0 + 6 * 60 * 60 * 1000;   // only a safety net: the real stop is 'no progress' below, so long videos can finish
     let lastTotal = -1, lastGrow = t0, stalls = 0;
     try {
       el.muted = true; el.loop = false;
       while (!c.job.cancel && Date.now() < deadline) {
+        if (c.truncated) return false;               // size limit reached: more loading cannot add anything
         const gap = S.firstGap(commonCovered(c), 0, dur, 0.35);
         if (!gap) return true;
         c.job.message = `Loading the rest of the video… ${pct(c)}%`;
@@ -475,8 +488,8 @@
         await sleep(250);
         const total = S.rangeTotal(commonCovered(c));
         if (total > lastTotal + 0.01) { lastTotal = total; lastGrow = Date.now(); stalls = 0; }
-        else if (Date.now() - lastGrow > 6000) {
-          if (++stalls > 3) return false;
+        else if (Date.now() - lastGrow > 10000) {
+          if (++stalls > 5) return false;
           lastGrow = Date.now();
         }
       }
@@ -526,7 +539,8 @@
     try { ok = await loadRest(c, el); } catch (e) { ok = false; }
     if (c.job.cancel) { c.job = { phase: 'canceled', message: 'Canceled.' }; return report(c); }
     if (!ok) {
-      c.job = { phase: 'failed', message: `Could not load the whole video (${pct(c)}% loaded). Keep this tab in front and press Download again, or use "Save as is".` };
+      if (c.truncated) c.job = { phase: 'failed', message: 'This video is larger than the capture size limit. Use "Save as is" to save what was captured.' };
+      else c.job = { phase: 'failed', message: `Could not load the whole video (${pct(c)}% loaded). Keep this tab in front and press Download again, or use "Save as is".` };
       return report(c);
     }
     try {
