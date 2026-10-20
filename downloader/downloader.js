@@ -24,12 +24,22 @@
   if (!isHttp(url) || (audioUrl && !isHttp(audioUrl))) return fail('Invalid URL.');
 
   // Saves a Blob through the browser's downloads and keeps its URL alive until it is written.
+  // The blob gets the type that belongs to its extension, and Chrome is told to keep our file name: a typeless blob
+  // named .ts was renamed by Chrome to .txt.
+  const MIME = { ts: 'video/mp2t', mp4: 'video/mp4', m4a: 'audio/mp4', webm: 'video/webm', aac: 'audio/aac' };
   async function saveBlob(blob, filename) {
-    const objUrl = URL.createObjectURL(blob);
-    const id = await chrome.downloads.download({ url: objUrl, filename, conflictAction: 'uniquify' });
+    const ext = ((/\.([a-z0-9]+)$/i.exec(filename) || [])[1] || '').toLowerCase();
+    const objUrl = URL.createObjectURL(new Blob([blob], { type: MIME[ext] || 'application/octet-stream' }));
+    const keepName = (item, suggest) => { if (item.url === objUrl || item.finalUrl === objUrl) suggest({ filename, conflictAction: 'uniquify' }); };
+    const det = chrome.downloads.onDeterminingFilename;
+    if (det) det.addListener(keepName);
+    let id;
+    try { id = await chrome.downloads.download({ url: objUrl, filename, conflictAction: 'uniquify' }); }
+    catch (e) { if (det) det.removeListener(keepName); URL.revokeObjectURL(objUrl); throw e; }
     const onChanged = (d) => {
       if (d.id === id && d.state && d.state.current !== 'in_progress') {
         chrome.downloads.onChanged.removeListener(onChanged);
+        if (det) det.removeListener(keepName);
         URL.revokeObjectURL(objUrl);
         if (d.state.current === 'interrupted') fail('Saving ' + filename + ' failed.');
       }
