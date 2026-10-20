@@ -1,0 +1,67 @@
+{
+  "manifest_version": 3,
+  "name": "Streamlift",
+  "version": "0.7.4",
+  "description": "Streamlift: detect and download videos, audio and HLS/DASH streams from web pages, with picture and sound merged into one file. Built by Prasun Tripathi.",
+  "author": "Prasun Tripathi",
+  "homepage_url": "https://github.com/tripathiprasun/streamlift",
+  "minimum_chrome_version": "111",
+  "permissions": [
+    "downloads",
+    "storage",
+    "webRequest",
+    "declarativeNetRequest"
+  ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "lib/sniff.js",
+        "lib/mux.js",
+        "lib/webm.js",
+        "inject.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_about_blank": true,
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "lib/sniff.js",
+        "content.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_about_blank": true
+    }
+  ],
+  "action": {
+    "default_title": "Streamlift",
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

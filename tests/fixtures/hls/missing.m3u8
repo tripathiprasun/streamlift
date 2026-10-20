@@ -1,0 +1,9 @@
+#EXTM3U
+#EXT-X-TARGETDURATION:2
+#EXTINF:2.0,
+hi_0.ts
+#EXTINF:2.0,
+nope_1.ts
+#EXTINF:2.0,
+hi_2.ts
+#EXT-X-ENDLIST
